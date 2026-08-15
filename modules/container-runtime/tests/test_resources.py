@@ -12,7 +12,7 @@ import time
 
 import pytest
 
-from conftest import requires_busybox, requires_overlayfs, requires_userns
+from container_testcaps import requires_busybox, requires_overlayfs, requires_userns
 from minicon import Container, ContainerConfig, ImageStore, Limits
 from minicon.cgroups import Cgroup, Limits as CgroupLimits, available_controllers, delegated_root
 

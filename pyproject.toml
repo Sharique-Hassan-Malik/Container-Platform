@@ -24,4 +24,8 @@ include = ["ctl*"]
 [tool.pytest.ini_options]
 testpaths = ["tests", "modules"]
 python_files = ["test_*.py"]
-addopts = "-q"
+# importlib import mode: several modules ship their own `tests` package, and
+# the default prepend mode resolves them all to one top-level name, so
+# collecting them in a single run collides. Each module's own
+# `pytest` still works unchanged from its own folder.
+addopts = "-q --import-mode=importlib"

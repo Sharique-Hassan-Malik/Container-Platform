@@ -12,7 +12,7 @@ import os
 
 import pytest
 
-from conftest import requires_busybox, requires_overlayfs, requires_userns
+from container_testcaps import requires_busybox, requires_overlayfs, requires_userns
 from minicon import Container, ContainerConfig, ImageStore, Limits, namespace_ids
 
 pytestmark = [requires_userns, requires_overlayfs, requires_busybox]

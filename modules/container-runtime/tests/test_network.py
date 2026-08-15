@@ -15,7 +15,7 @@ import time
 
 import pytest
 
-from conftest import requires_userns
+from container_testcaps import requires_userns
 from minicon import Bridge, Netlink, idmap, linux
 from minicon.network import connect, host_networking_available
 
