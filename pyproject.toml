@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ctl"
+version = "1.0.0"
+description = "A container runtime, image builder, Raft store, task queue and the control plane over them"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+dependencies = []
+
+[project.optional-dependencies]
+raft = ["grpcio>=1.60", "protobuf>=4"]
+dev = ["pytest>=7"]
+
+[project.scripts]
+ctl = "ctl.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["ctl*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "modules"]
+python_files = ["test_*.py"]
+addopts = "-q"

@@ -1,0 +1,5 @@
+# The control plane, container runtime and image toolkit run on the standard
+# library alone. gRPC is only needed for the Raft-backed cluster store.
+grpcio>=1.60
+protobuf>=4
+pytest>=7

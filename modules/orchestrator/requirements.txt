@@ -1,0 +1,2 @@
+# The control plane runs on the standard library alone.
+# Optional: grpcio, for the Raft-backed cluster store (see ../raft-kv).

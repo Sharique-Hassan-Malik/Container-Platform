@@ -1,0 +1,17 @@
+[build-system]
+requires      = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name        = "raft-kv"
+version     = "1.0.0"
+description = "Raft-based distributed key-value store"
+requires-python = ">=3.10"
+dependencies = ["grpcio>=1.54", "grpcio-tools>=1.54"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+timeout   = 30
