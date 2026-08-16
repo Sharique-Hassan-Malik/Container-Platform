@@ -156,7 +156,23 @@ def build_runtime(name: str, **options):
         return SimulatedRuntime(start_latency=float(options.get("start_latency", 0.0)))
     if name == "process":
         return ProcessRuntime()
+
+    # Checked here rather than in `check()`: the runtime is perfectly usable on
+    # this host, you just have not built an image yet. Those are different
+    # facts, and reporting the second as "container backend unavailable" in
+    # `ctl status` would be a lie. Checked before construction all the same,
+    # because otherwise it surfaces as a FileNotFoundError from three frames
+    # inside the runtime, naming a path and no way to fix it.
+    image_store = Path(options.get("image_store", "./images"))
+    if not (image_store / "index.json").is_file():
+        raise RuntimeError(
+            f"runtime backend 'container' needs an OCI image layout at "
+            f"{image_store}, and {image_store / 'index.json'} is not there. "
+            f"Build one:\n"
+            f"    ctl image --store {image_store} build ./context -t serve:v1\n"
+            f"or point --image-store at a layout you already have."
+        )
     return ContainerRuntime(
-        image_store=str(options.get("image_store", Path("./images"))),
+        image_store=str(image_store),
         workspace=str(options.get("workspace", "./.state/containers")),
     )

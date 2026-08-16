@@ -312,8 +312,11 @@ def run_helper(operation: str, **spec) -> None:
     """
     helper_root = str(Path(__file__).resolve().parents[1])
     env = dict(os.environ)
+    # The caller's import roots as well as ours: a pickled callable is useless
+    # in the child if the module that defines it cannot be imported there.
+    roots = [helper_root, *(p for p in sys.path if p and os.path.isdir(p))]
     env["PYTHONPATH"] = os.pathsep.join(
-        [helper_root, *([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])])
+        dict.fromkeys([*roots, *([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])]))
     # gRPC's fork handlers are the reason this helper exists; they have no
     # business running in it either.
     env["GRPC_ENABLE_FORK_SUPPORT"] = "0"
@@ -340,11 +343,33 @@ def run_in_userns(function, mapping: idmap.IdMapping | None = None) -> None:
     so `function` returning normally means success and raising means failure --
     deliberately narrow, since anything richer would need to survive a fork.
 
-    Takes a closure, so it cannot cross an `exec` and therefore cannot protect
-    itself from a parent whose fork handlers start threads in the child. It
-    checks for that and says so rather than surfacing an EINVAL from four
-    frames down. Prefer `run_helper` for anything expressible as data.
+    Forks and unshares in the child, which is the cheap path and the right one
+    almost always. When the parent has fork handlers that start threads in the
+    child -- gRPC's do while a server is running -- a forked child cannot
+    unshare at all, and this falls back to `run_helper`, pickling `function`
+    into a freshly exec'd process.
+
+    That fallback needs `function` to be picklable and its module importable,
+    so a lambda will not survive it. The error says so, rather than surfacing
+    an EINVAL from four frames down. Prefer `run_helper` directly for anything
+    expressible as data.
     """
+    hazardous, hazard = linux.fork_thread_hazard()
+    if hazardous:
+        import base64
+        import pickle
+
+        try:
+            payload = base64.b64encode(pickle.dumps(function)).decode()
+        except (AttributeError, TypeError, pickle.PicklingError) as exc:
+            raise RuntimeError(
+                f"cannot enter a user namespace by forking here -- {hazard} "
+                f"-- and {function!r} cannot be sent to a fresh process either "
+                f"({exc}). Pass a module-level function, or use run_helper() "
+                "with an operation from minicon.nshelper."
+            ) from exc
+        run_helper("call", callable=payload)
+        return
     mapping = mapping or idmap.root_mapping()
     read_fd, write_fd = os.pipe()
     pid = os.fork()

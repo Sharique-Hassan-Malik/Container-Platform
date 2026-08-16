@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 
 import pytest
 
@@ -343,3 +344,65 @@ def test_a_second_unpack_leaves_a_ready_layer_alone(image_store, tmp_path):
     second.ensure(store, image)
     assert second.unpacked == [], "a ready layer was unpacked again"
     assert os.path.exists(witness), "a ready layer was deleted and re-extracted"
+
+
+# ---------------------------------------------------------------------------
+# run_in_userns when forking cannot give a single-threaded child
+# ---------------------------------------------------------------------------
+
+
+def _remove_the_env_target() -> None:
+    """Module level, so it is picklable and can cross an exec."""
+    import shutil
+
+    shutil.rmtree(os.environ["MINICON_TEST_TARGET"], ignore_errors=True)
+
+
+@requires_userns
+def test_run_in_userns_falls_back_to_a_fresh_process_under_the_fork_hazard(tmp_path, monkeypatch):
+    """gRPC serving means a forked child is not single-threaded, so the fork
+    path cannot work. A picklable callable goes through an exec instead."""
+    pytest.importorskip("grpc")
+    import grpc
+    from concurrent import futures
+
+    from minicon import linux
+    from minicon.image import run_in_userns
+
+    monkeypatch.setenv("GRPC_ENABLE_FORK_SUPPORT", "1")
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=2))
+    server.add_insecure_port("127.0.0.1:0")
+    server.start()
+    try:
+        assert linux.fork_thread_hazard()[0], "the hazard did not materialise"
+
+        target = tmp_path / "doomed"
+        target.mkdir()
+        monkeypatch.setenv("MINICON_TEST_TARGET", str(target))
+        monkeypatch.syspath_prepend(str(Path(__file__).resolve().parent))
+
+        run_in_userns(_remove_the_env_target)
+        assert not target.exists()
+    finally:
+        server.stop(0).wait()
+
+
+@requires_userns
+def test_an_unpicklable_callable_under_the_hazard_says_why(monkeypatch):
+    """A lambda cannot cross an exec. The error must name the cause and the
+    alternative, not surface an EINVAL from inside the helper."""
+    pytest.importorskip("grpc")
+    import grpc
+    from concurrent import futures
+
+    from minicon.image import run_in_userns
+
+    monkeypatch.setenv("GRPC_ENABLE_FORK_SUPPORT", "1")
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=2))
+    server.add_insecure_port("127.0.0.1:0")
+    server.start()
+    try:
+        with pytest.raises(RuntimeError, match="run_helper"):
+            run_in_userns(lambda: None)
+    finally:
+        server.stop(0).wait()

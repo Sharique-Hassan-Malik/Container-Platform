@@ -110,7 +110,7 @@ and tells you why.
 ## Tests
 
 ```bash
-pytest                            # everything: 303 tests, nothing skipped
+pytest                            # everything: 307 tests, nothing skipped
 pytest modules/orchestrator       # one module
 ```
 

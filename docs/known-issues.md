@@ -3,7 +3,7 @@
 What is not fixed, and what was. Everything here is reachable from the test
 suite; nothing is a rumour.
 
-`pytest` runs 303 tests and skips none of them.
+`pytest` runs 307 tests and skips none of them.
 
 ---
 
@@ -100,30 +100,43 @@ before. `minicon` now accepts both, using `argparse.SUPPRESS` on the
 subcommand copy so that a value given before the subcommand is not silently
 overwritten by the subparser's default.
 
+## Fixed: a missing image store said `FileNotFoundError`
+
+`ctl up --runtime container --image-store ./oci` failed if `./oci` was not an
+OCI layout — correctly, since there is nothing to run — but it surfaced three
+frames inside the runtime, naming a path and no way to fix it.
+
+Validated in `build_runtime` now, which is where the caller passes the path:
+
+```
+ctl: runtime backend 'container' needs an OCI image layout at nope, and
+nope/index.json is not there. Build one:
+    ctl image --store nope build ./context -t serve:v1
+or point --image-store at a layout you already have.
+```
+
+Deliberately *not* in `Backend.check()`. The runtime is perfectly usable on
+this host; you have simply not built an image. Reporting that as "container
+backend unavailable" in `ctl status` would be a lie about the host.
+
+## Fixed: `run_in_userns` under the fork hazard
+
+The general entry point forks and unshares in the child, so it inherited the
+gRPC hazard above. It now detects the condition before forking and falls back
+to `run_helper`, pickling the callable into a freshly exec'd process, which is
+single-threaded by construction.
+
+That fallback needs the callable to be picklable and its module importable, so
+a lambda cannot survive it — and the error says exactly that, naming
+`run_helper` as the alternative, rather than surfacing an EINVAL. `run_helper`
+also passes the parent's import roots through `PYTHONPATH`, because a pickled
+callable is useless in a child that cannot import the module defining it.
+
+Both paths are tested against a live gRPC server.
+
 ---
 
 ## Not fixed
-
-### The container backend needs an image store you populated
-
-`ctl up --runtime container --image-store ./oci` fails if `./oci` is not an OCI
-layout. That is correct — there is nothing sensible to run otherwise — but it
-surfaces as a `FileNotFoundError` from inside the runtime rather than as a
-message telling you to run `ctl image build` first.
-
-Left alone because the fix belongs in backend construction, where the error
-would have to be raised before the runtime is built, and doing that properly
-means the backend `check()` needs to know about the image store — a wider
-change to the backend contract than the message is worth.
-
-### `run_in_userns` still takes a closure
-
-The general entry point forks and unshares in the child, so it inherits the
-fork hazard described above. It detects the condition and says so, rather than
-failing with `EINVAL`, but it cannot fix itself: a closure cannot cross an
-`exec`. Everything internal uses `run_helper` instead. It stays because it is
-the honest general form, and the alternative is pretending the fast path does
-not exist.
 
 ### The task queue dashboard is not wired into `ctl up`
 

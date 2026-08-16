@@ -82,7 +82,24 @@ def _remove(spec: dict) -> None:
         shutil.rmtree(path, ignore_errors=True)
 
 
-OPERATIONS = {"unpack": _unpack, "remove": _remove}
+def _call(spec: dict) -> None:
+    """Run a pickled callable inside the namespace.
+
+    The escape hatch for `run_in_userns`, whose argument is a callable and so
+    cannot cross an exec on its own. Only reached when forking cannot produce a
+    single-threaded child; the fork path stays the default because it needs no
+    pickling and no import of the caller's module.
+
+    The payload comes from this same process tree, so unpickling it is not a
+    trust boundary — it is the same code, one exec later.
+    """
+    import base64
+    import pickle
+
+    pickle.loads(base64.b64decode(spec["callable"]))()
+
+
+OPERATIONS = {"unpack": _unpack, "remove": _remove, "call": _call}
 
 
 def main(argv: list[str] | None = None) -> int:
