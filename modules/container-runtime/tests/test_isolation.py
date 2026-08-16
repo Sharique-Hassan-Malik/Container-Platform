@@ -277,3 +277,69 @@ def test_context_manager_cleans_up(image_store, workspace, tmp_path):
         container.wait(timeout=60)
         bundle = container.bundle
     assert not os.path.exists(bundle)
+
+
+# ---------------------------------------------------------------------------
+# the shared layer cache under concurrency
+# ---------------------------------------------------------------------------
+
+
+def test_concurrent_unpacks_of_one_layer_do_not_destroy_each_other(image_store, tmp_path):
+    """Four replicas of one image start at once and all find the layer missing.
+
+    Without a per-layer lock they all unpack into the same directory, each
+    beginning by deleting what the others are using, and whichever container
+    loses gets `exec: No such file or directory` — intermittently, on a
+    rollout, which is the worst way to find a bug.
+
+    Runs the real unpack path in four processes, then checks the layer is
+    complete and every file readable.
+    """
+    import concurrent.futures
+
+    from minicon.image import ImageStore, LayerCache
+
+    store = ImageStore(image_store)
+    image = store.get("app:v1")
+    cache_root = str(tmp_path / "layers")
+
+    def unpack_all() -> list[str]:
+        return LayerCache(cache_root).ensure(store, image)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        results = [future.result() for future in
+                   [pool.submit(unpack_all) for _ in range(4)]]
+
+    # Every caller must get the same lowerdirs, and each must really be there.
+    assert len({tuple(r) for r in results}) == 1, "callers disagreed about the layers"
+    for lower in results[0]:
+        assert os.path.isdir(lower), f"{lower} vanished"
+        for root, _dirs, files in os.walk(lower):
+            for name in files:
+                path = os.path.join(root, name)
+                if os.path.islink(path):
+                    continue
+                assert os.path.exists(path), f"{path} was removed mid-unpack"
+
+
+def test_a_second_unpack_leaves_a_ready_layer_alone(image_store, tmp_path):
+    """The check and the unpack are one step, so an already-ready layer is not
+    re-extracted underneath a container that is using it."""
+    from minicon.image import ImageStore, LayerCache
+
+    store = ImageStore(image_store)
+    image = store.get("app:v1")
+    cache_root = str(tmp_path / "layers")
+
+    first = LayerCache(cache_root)
+    first.ensure(store, image)
+    assert first.unpacked, "nothing was unpacked on a cold cache"
+
+    witness = os.path.join(first.path_for(image.layer_digests[0]), "witness")
+    with open(witness, "w") as handle:
+        handle.write("still here")
+
+    second = LayerCache(cache_root)
+    second.ensure(store, image)
+    assert second.unpacked == [], "a ready layer was unpacked again"
+    assert os.path.exists(witness), "a ready layer was deleted and re-extracted"

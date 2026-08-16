@@ -17,7 +17,6 @@ from container_testcaps import (  # noqa: F401
     make_layer,
     requires_busybox,
     requires_overlayfs,
-    requires_single_threaded,
     userns_capable,
     requires_userns,
     workspace,

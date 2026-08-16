@@ -154,9 +154,23 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="minicon")
     parser.add_argument("--store", default="./images", help="OCI image layout directory")
     parser.add_argument("--root", default="./.run", help="runtime state and layer cache")
+
+    # The same two flags, accepted *after* the subcommand as well. Before is the
+    # usual shape for a global, but `ctl run --store X ...` delegates here with
+    # the subcommand already in place, and rejecting a flag purely on its
+    # position is a worse answer than accepting it in both.
+    #
+    # SUPPRESS is what makes this safe: without it the subparser's own default
+    # would overwrite a value given before the subcommand, so `--store X run`
+    # would silently fall back to ./images.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--store", default=argparse.SUPPRESS,
+                        help="OCI image layout directory")
+    common.add_argument("--root", default=argparse.SUPPRESS,
+                        help="runtime state and layer cache")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    run = sub.add_parser("run")
+    run = sub.add_parser("run", parents=[common])
     run.add_argument("image")
     run.add_argument("argv", nargs="*", help="override the image entrypoint")
     run.add_argument("--name")
@@ -174,17 +188,17 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("-v", "--verbose", action="store_true")
     run.set_defaults(func=cmd_run)
 
-    images = sub.add_parser("images")
+    images = sub.add_parser("images", parents=[common])
     images.set_defaults(func=cmd_images)
 
-    inspect = sub.add_parser("inspect")
+    inspect = sub.add_parser("inspect", parents=[common])
     inspect.add_argument("image")
     inspect.set_defaults(func=cmd_inspect)
 
-    ps = sub.add_parser("ps")
+    ps = sub.add_parser("ps", parents=[common])
     ps.set_defaults(func=cmd_ps)
 
-    check = sub.add_parser("check")
+    check = sub.add_parser("check", parents=[common])
     check.set_defaults(func=cmd_check)
 
     args = parser.parse_args(argv)

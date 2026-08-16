@@ -200,3 +200,120 @@ def test_layers_are_shared_between_images(image_store):
 ])
 def test_parse_size(text, expected):
     assert parse_size(text) == expected
+
+
+# ---------------------------------------------------------------------------
+# why the namespace tests do not need a single-threaded process
+# ---------------------------------------------------------------------------
+
+
+def test_unshare_is_only_ever_called_after_a_fork():
+    """The property that lets the namespace tests run alongside everything else.
+
+    `unshare(CLONE_NEWUSER)` fails with EINVAL in a multi-threaded process, and
+    a pytest run that has already started a gRPC server is multi-threaded. That
+    used to skip forty-three real tests. It never needed to: every `unshare` in
+    this codebase happens in a child of `fork()`, and a forked child has
+    exactly one thread — the one that called fork.
+
+    This asserts that invariant textually, because it is the kind of thing a
+    later edit breaks silently: the tests would not fail, they would go back to
+    being skipped, or start failing with an opaque `Invalid argument`.
+
+    The reachability is one step removed in the runtime — `if pid == 0:` calls
+    `self._child()`, which unshares — so this walks from the forked branches
+    through the functions they call, to a fixed point.
+    """
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    sources = sorted([*(root / "minicon").glob("*.py"), *(root / "tests").glob("*.py")])
+
+    def called_names(node) -> set[str]:
+        names = set()
+        for call in ast.walk(node):
+            if isinstance(call, ast.Call):
+                func = call.func
+                names.add(func.attr if isinstance(func, ast.Attribute)
+                          else getattr(func, "id", ""))
+        return names - {""}
+
+    trees = {path: ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+             for path in sources}
+    functions = {}                       # name -> list of definition nodes
+    for tree in trees.values():
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                functions.setdefault(node.name, []).append(node)
+
+    # Seed: the body of every `if <pid> == 0:` branch runs in the child, both
+    # the statements themselves and whatever they call.
+    fork_only: set[str] = set()
+    child_lines: set[int] = set()
+    for tree in trees.values():
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.If):
+                continue
+            test = node.test
+            if (isinstance(test, ast.Compare) and isinstance(test.left, ast.Name)
+                    and len(test.ops) == 1 and isinstance(test.ops[0], ast.Eq)
+                    and isinstance(test.comparators[0], ast.Constant)
+                    and test.comparators[0].value == 0):
+                for statement in node.body:
+                    fork_only |= called_names(statement)
+                    child_lines.update(range(statement.lineno,
+                                             (statement.end_lineno or statement.lineno) + 1))
+
+    # Fixed point: anything a fork-only function calls is also fork-only.
+    changed = True
+    while changed:
+        changed = False
+        for name in list(fork_only):
+            for definition in functions.get(name, []):
+                for called in called_names(definition):
+                    if called not in fork_only:
+                        fork_only.add(called)
+                        changed = True
+
+    # The wrapper in linux.py *is* unshare; it is not a caller of it.
+    safe_definitions = {node for name in fork_only for node in functions.get(name, [])}
+    safe_definitions |= set(functions.get("unshare", []))
+    safe_lines = {line for node in safe_definitions
+                  for line in range(node.lineno, (node.end_lineno or node.lineno) + 1)}
+    safe_lines |= child_lines
+
+    offenders = []
+    for path, tree in trees.items():
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+            if name == "unshare" and node.lineno not in safe_lines:
+                offenders.append(f"{path.relative_to(root)}:{node.lineno}")
+
+    assert not offenders, (
+        "unshare() reachable outside a forked child: " + ", ".join(offenders) +
+        " — this fails with EINVAL whenever the process has more than one "
+        "thread. Fork first; the child gets exactly one."
+    )
+
+
+def test_the_thread_count_probe_reads_the_kernel_not_python():
+    """`threading.active_count()` cannot see a C extension's pool, and those are
+    exactly the threads that break unshare."""
+    import threading
+
+    from container_testcaps import os_thread_count
+
+    stop = threading.Event()
+    threads = [threading.Thread(target=stop.wait, daemon=True) for _ in range(3)]
+    for thread in threads:
+        thread.start()
+    try:
+        assert os_thread_count() >= 4
+    finally:
+        stop.set()
+        for thread in threads:
+            thread.join(timeout=5)

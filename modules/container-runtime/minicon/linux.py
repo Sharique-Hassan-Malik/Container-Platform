@@ -24,6 +24,7 @@ import ctypes
 import ctypes.util
 import errno
 import os
+import sys
 
 _libc = ctypes.CDLL(ctypes.util.find_library("c") or "libc.so.6", use_errno=True)
 
@@ -238,6 +239,35 @@ def userns_available() -> tuple[bool, str]:
         if path.endswith("unprivileged_userns") and value == 1:
             return False, message
     return True, "available"
+
+
+def fork_thread_hazard() -> tuple[bool, str]:
+    """Whether something in this process will put threads in its forked children.
+
+    `unshare(CLONE_NEWUSER)` needs the caller to be the only thread in its
+    thread group. A forked child normally is — POSIX keeps only the calling
+    thread — so forking then unsharing is the standard way to build a
+    container. It stops being true when a library has registered a
+    `pthread_atfork` handler that *starts* threads in the child.
+
+    gRPC does, whenever a server or channel is live:
+
+        baseline                  child_threads=1  unshare=0
+        after grpc server start   child_threads=6  unshare=-1 errno=22
+
+    Detected rather than probed, because probing costs a fork on every
+    container start and the condition is exactly knowable: gRPC only installs
+    those handlers when its fork support is enabled.
+    """
+    if "grpc" in sys.modules and os.environ.get("GRPC_ENABLE_FORK_SUPPORT") != "0":
+        return True, (
+            "gRPC is loaded in this process with fork support enabled, so its "
+            "pthread_atfork handler starts threads in every forked child, and "
+            "unshare(CLONE_NEWUSER) then fails with EINVAL. Set "
+            "GRPC_ENABLE_FORK_SUPPORT=0 before importing grpc — the container "
+            "child never uses gRPC, so it loses nothing."
+        )
+    return False, ""
 
 
 def overlayfs_in_userns() -> bool:

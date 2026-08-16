@@ -6,15 +6,15 @@ compose into something Kubernetes-shaped, built from first principles — no
 Docker, no runc, no etcd, no privileged helper.
 
 ```
-ctl status                                   # what this host can actually run
-ctl image build ./ctx --tag serve:v1         # OCI layout, reproducible layers
-ctl run serve:v1 -- /bin/echo hello          # namespaces, cgroups, overlayfs
+ctl status                                        # what this host can actually run
+ctl image --store ./oci build ./ctx -t serve:v1   # OCI layout, reproducible layers
+ctl run --store ./oci serve:v1 /bin/busybox echo hi   # namespaces, cgroups, overlayfs
 ctl up --store raft --runtime container --replicas 4 --rollout serve:v2
 ```
 
 ```
-$ ctl up --store raft --runtime simulated --replicas 4 --rollout serve:v2
-  control plane up on store=raft runtime=simulated (3 nodes, 0.7s)
+$ ctl up --store raft --runtime container --replicas 4 --rollout serve:v2
+  control plane up on store=raft runtime=container (3 nodes, 0.5s)
   serve: 4 replicas of serve:v1 available
       serve-b6d54efee2-037738      Ready      node-0
       serve-b6d54efee2-090255      Ready      node-1
@@ -110,9 +110,16 @@ and tells you why.
 ## Tests
 
 ```bash
-pytest                            # everything, 280+ tests
+pytest                            # everything: 303 tests, nothing skipped
 pytest modules/orchestrator       # one module
 ```
+
+Nothing is skipped, and that took work. The namespace tests used to skip
+themselves — forty-three of them — whenever the suite ran alongside a module
+that starts a gRPC server, on the theory that `unshare(CLONE_NEWUSER)` needs a
+single-threaded process. It does, but a forked child is single-threaded, so the
+gate was wrong and the real bug was underneath it. See
+[docs/known-issues.md](docs/known-issues.md).
 
 ## Licence
 

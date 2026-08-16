@@ -42,9 +42,8 @@ def os_thread_count() -> int:
     """Threads as the *kernel* sees them.
 
     `threading.active_count()` only counts threads Python created. gRPC, and
-    any other C extension with its own pool, are invisible to it — and they are
-    exactly the ones that break `unshare`. /proc is the only source that counts
-    them.
+    any other C extension with its own pool, are invisible to it. /proc is the
+    only source that counts them, which matters for the assertion below.
     """
     try:
         for line in Path("/proc/self/status").read_text().splitlines():
@@ -56,45 +55,47 @@ def os_thread_count() -> int:
 
 
 def single_threaded() -> tuple[bool, str]:
-    """Whether this process can still create a user namespace.
+    """Whether *this* process could call `unshare(CLONE_NEWUSER)` directly.
 
-    `unshare(CLONE_NEWUSER)` fails with EINVAL in a multi-threaded process, and
-    the kernel gives no way to undo that. Running these tests alone is fine;
-    running them after a module whose tests start a gRPC server or a broker
-    thread is not, and the failure is an unhelpful `Invalid argument` deep in
-    the helper. Checked as a capability so the skip explains itself.
+    `unshare(CLONE_NEWUSER)` fails with EINVAL when the calling process has
+    more than one thread, and the kernel gives no way to undo that.
+
+    This is a true fact about the syscall and a false gate for these tests,
+    which is the distinction that matters: **nothing here unshares in the test
+    process**. Both the runtime (`Container.start`, `image.in_userns`) and the
+    test helpers fork first, and `fork()` gives the child exactly one thread —
+    the calling one — so the parent's count is irrelevant by construction.
+
+    It was a gate once, and it silently skipped forty-three real tests whenever
+    the suite ran alongside a module that starts a gRPC server. Kept as a
+    diagnostic, and asserted against in `test_units.py` so that if anything
+    ever does unshare in-process the reason is already written down.
     """
     count = os_thread_count()
     if count > 1:
         return False, (
-            f"user namespaces need a single-threaded process; the kernel reports "
-            f"{count} threads in this one (a C extension such as gRPC keeps its "
-            f"own pool). Run this module's tests on their own."
+            f"this process has {count} threads, so it cannot unshare a user "
+            f"namespace directly (EINVAL); fork first — the child gets one thread"
         )
     return True, ""
 
 
 @pytest.fixture
 def userns_capable() -> None:
-    """Skip at *run* time if a user namespace cannot be created right now.
+    """Skip at *run* time if a user namespace cannot be created here.
 
-    Kernel support is a static fact and could be a `skipif`. Thread count is
-    not: it is single-threaded at collection and multi-threaded by the time a
-    later module's gRPC server or broker thread is running, so the check has to
-    happen when the test executes.
+    Run time rather than collection time because a `skipif` mark is evaluated
+    while the module is imported, and these tests are also gated on facts that
+    are only true once the test executes.
     """
     ok, reason = userns_available()
     if not ok:
         pytest.skip(reason)
-    ok, reason = single_threaded()
-    if not ok:
-        pytest.skip(reason)
 
 
-# Applied by the tests as a decorator; a fixture request rather than a skipif
-# so both halves of the capability are evaluated when the test runs.
+# Applied by the tests as a decorator; a fixture request rather than a skipif so
+# it is evaluated when the test runs.
 requires_userns = pytest.mark.usefixtures("userns_capable")
-requires_single_threaded = _requires(single_threaded)
 requires_overlayfs = pytest.mark.skipif(
     not overlayfs_in_userns(), reason="unprivileged overlayfs needs Linux 5.11+"
 )

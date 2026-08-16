@@ -94,6 +94,43 @@ The one change this required was splitting `taskqueue`'s CLI out of its `tq.py`
 entry script into `taskqueue/cli.py`, so there is a `main(argv)` to call. The
 entry script is now four lines over that function.
 
+## gRPC and namespaces, in one process
+
+The one genuinely hard interaction between two modules, and the reason this is
+a platform rather than five directories.
+
+`unshare(CLONE_NEWUSER)` returns EINVAL unless the caller is the only thread in
+its thread group, so a container runtime forks first — a forked child keeps
+only the calling thread. gRPC breaks that: it registers a `pthread_atfork`
+handler that recreates its polling threads *in the child*, so with a server
+running, every fork produces a child with six threads and every container start
+fails with an `Invalid argument` that names nothing involved.
+
+`ctl up --store raft --runtime container` runs both in one process, so this is
+the platform's problem to solve, and `ctl/__init__.py` solves it where a
+process-global setting belongs:
+
+```python
+# Set before anything imports grpc, and this package is the first thing the
+# CLI touches.
+os.environ.setdefault("GRPC_ENABLE_FORK_SUPPORT", "0")
+```
+
+The forked child unshares and execs a container; it never speaks gRPC, so
+disabling fork support costs nothing.
+
+Two supporting pieces, because a platform should not depend on an environment
+variable for correctness:
+
+- `minicon/nshelper.py` re-execs a clean process for layer unpacking and
+  cleanup. An `exec`'d process has one thread and none of the parent's fork
+  handlers, whatever the parent loaded — the same reason runc has `nsenter`.
+  The price is that those operations cross an exec, so they are JSON documents
+  rather than closures.
+- `minicon.linux.fork_thread_hazard()` names the cause, and the container child
+  reports it back up its pipe, so the failure mode is a sentence about gRPC
+  rather than an errno.
+
 ## Known trade-offs
 
 - **The Raft cluster is in-process.** `ctl up --store raft` starts three nodes

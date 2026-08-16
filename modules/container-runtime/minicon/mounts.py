@@ -151,14 +151,10 @@ class OverlayRoot:
         remaining = [path for path in targets if os.path.exists(path)]
         if not remaining:
             return
-        from .image import run_in_userns
-
-        def remove_as_root() -> None:
-            for path in remaining:
-                shutil.rmtree(path, ignore_errors=True)
+        from .image import run_helper
 
         try:
-            run_in_userns(remove_as_root)
+            run_helper("remove", paths=remaining)
         except RuntimeError:
             # A leaked work directory is untidy, not incorrect; refusing to
             # delete the container over it would be worse.

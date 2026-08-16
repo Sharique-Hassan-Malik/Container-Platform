@@ -28,7 +28,11 @@ from __future__ import annotations
 import gzip
 import io
 import json
+import json
 import os
+import subprocess
+import sys
+from pathlib import Path
 import shutil
 import stat
 import tarfile
@@ -169,6 +173,11 @@ class LayerCache:
     def marker_for(self, digest: str) -> str:
         return self.path_for(digest) + UNPACK_MARKER_SUFFIX
 
+    def lock_for(self, digest: str) -> str:
+        """Beside the layer directory, never inside it — unpacking deletes the
+        directory, and a lock file you can delete is not a lock."""
+        return self.path_for(digest) + ".lock"
+
     def is_ready(self, digest: str) -> bool:
         return os.path.exists(self.marker_for(digest))
 
@@ -183,7 +192,8 @@ class LayerCache:
         if missing:
             # One namespace for the whole batch: entering a user namespace costs
             # a fork and two /proc writes, and doing it per layer is measurable.
-            run_in_userns(lambda: _unpack_layers(store, self, missing))
+            run_helper("unpack", store_root=store.root, cache_root=self.root,
+                       digests=missing)
             self.unpacked = missing
         for digest in image.layer_digests:
             if not self.is_ready(digest):
@@ -281,6 +291,47 @@ def _remove(path: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _thread_count() -> int:
+    try:
+        with open("/proc/self/status") as handle:
+            for line in handle:
+                if line.startswith("Threads:"):
+                    return int(line.split()[1])
+    except (OSError, ValueError):
+        pass
+    return 1
+
+
+def run_helper(operation: str, **spec) -> None:
+    """Run one namespace operation in a freshly exec'd process.
+
+    The robust path, and the one everything internal uses. `run_in_userns`
+    below forks and unshares in the child, which is faster and fails outright
+    when the parent has a `pthread_atfork` handler that starts threads in the
+    child -- gRPC's does. See `nshelper` for the measurement.
+    """
+    helper_root = str(Path(__file__).resolve().parents[1])
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        [helper_root, *([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])])
+    # gRPC's fork handlers are the reason this helper exists; they have no
+    # business running in it either.
+    env["GRPC_ENABLE_FORK_SUPPORT"] = "0"
+
+    completed = subprocess.run(
+        [sys.executable, "-m", "minicon.nshelper"],
+        # uid/gid measured here, outside the namespace: inside it this process
+        # is unmapped and reads as 65534, which the kernel refuses to map.
+        input=json.dumps({"op": operation, "uid": os.getuid(),
+                          "gid": os.getgid(), **spec}),
+        capture_output=True, text=True, env=env,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            (completed.stderr or "").strip()
+            or f"user namespace helper failed ({completed.returncode})")
+
+
 def run_in_userns(function, mapping: idmap.IdMapping | None = None) -> None:
     """Run `function` in a throwaway user namespace where we are root.
 
@@ -288,6 +339,11 @@ def run_in_userns(function, mapping: idmap.IdMapping | None = None) -> None:
     cannot otherwise create. The child's exit status is the only channel back,
     so `function` returning normally means success and raising means failure --
     deliberately narrow, since anything richer would need to survive a fork.
+
+    Takes a closure, so it cannot cross an `exec` and therefore cannot protect
+    itself from a parent whose fork handlers start threads in the child. It
+    checks for that and says so rather than surfacing an EINVAL from four
+    frames down. Prefer `run_helper` for anything expressible as data.
     """
     mapping = mapping or idmap.root_mapping()
     read_fd, write_fd = os.pipe()
@@ -296,6 +352,15 @@ def run_in_userns(function, mapping: idmap.IdMapping | None = None) -> None:
         status = 0
         try:
             os.close(read_fd)
+            threads = _thread_count()
+            if threads > 1:
+                raise RuntimeError(
+                    f"this forked child has {threads} threads, so it cannot "
+                    "unshare a user namespace (EINVAL). Something in the parent "
+                    "registered a pthread_atfork handler that starts threads -- "
+                    "gRPC does this while a server is running. Use run_helper(), "
+                    "which execs a clean process."
+                )
             linux.unshare(linux.CLONE_NEWUSER | linux.CLONE_NEWNS)
             idmap.write_maps(os.getpid(), mapping)
             linux.make_root_private()

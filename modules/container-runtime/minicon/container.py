@@ -248,10 +248,17 @@ class Container:
         os.close(started_w)
         self.child_pid = pid
 
-        if os.read(ns_ready_r, 1) != b"R":
+        signal_byte = os.read(ns_ready_r, 1)
+        if signal_byte != b"R":
+            detail = b""
+            if signal_byte == b"E":
+                while chunk := os.read(ns_ready_r, 4096):
+                    detail += chunk
             os.close(ns_ready_r)
             os.close(go_w)
-            raise ContainerError("container child died before creating its namespaces")
+            os.waitpid(pid, 0)
+            raise ContainerError(
+                detail.decode() or "container child died before creating its namespaces")
         os.close(ns_ready_r)
         self.phases.namespace_s = time.perf_counter() - namespace_started
 
@@ -307,7 +314,18 @@ class Container:
                 # own cgroup as "/" rather than the host's full path.
                 self.cgroup.add_process(os.getpid())
 
-            linux.unshare(CONTAINER_NAMESPACES)
+            try:
+                linux.unshare(CONTAINER_NAMESPACES)
+            except OSError as exc:
+                # EINVAL here means this child is not alone in its thread
+                # group, which a forked child is supposed to be. Say what put
+                # the threads there rather than letting an "Invalid argument"
+                # surface from four frames down.
+                _, hazard = linux.fork_thread_hazard()
+                detail = f"{exc}" + (f" — {hazard}" if hazard else "")
+                os.write(ns_ready_w, b"E" + detail.encode()[:3000])
+                os.close(ns_ready_w)
+                os._exit(125)
             os.write(ns_ready_w, b"R")
             os.close(ns_ready_w)
 

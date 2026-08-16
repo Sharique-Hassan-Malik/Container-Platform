@@ -200,3 +200,89 @@ class TestCli:
         with pytest.raises(SystemExit):
             cli.main(["image", "--help"])
         assert "imagekit" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# gRPC and namespaces in one process — the seam that actually broke
+# ---------------------------------------------------------------------------
+
+
+@RAFT
+def test_a_forked_child_is_single_threaded_while_grpc_serves():
+    """`ctl up --store raft --runtime container` needs both in one process.
+
+    gRPC registers a `pthread_atfork` handler that recreates its polling
+    threads in the child. `unshare(CLONE_NEWUSER)` then fails with EINVAL,
+    because it requires the caller to be the only thread in its thread group —
+    and the container runtime builds every namespace by forking. The symptom is
+    an "Invalid argument" from four frames down that names nothing involved.
+
+    `ctl/__init__.py` sets GRPC_ENABLE_FORK_SUPPORT=0 for exactly this reason.
+    The child never speaks gRPC, so it loses nothing. This checks the setting
+    is actually in force, by the only measurement that matters.
+    """
+    import ctypes
+    import os
+    from concurrent import futures
+
+    import grpc
+
+    import ctl  # noqa: F401 — imported for its side effect on the environment
+
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=2))
+    server.add_insecure_port("127.0.0.1:0")
+    server.start()
+    try:
+        read_fd, write_fd = os.pipe()
+        pid = os.fork()
+        if pid == 0:
+            os.close(read_fd)
+            with open("/proc/self/status") as handle:
+                threads = next(int(line.split()[1]) for line in handle
+                               if line.startswith("Threads:"))
+            libc = ctypes.CDLL("libc.so.6", use_errno=True)
+            code = libc.unshare(0x10000000)          # CLONE_NEWUSER
+            os.write(write_fd, f"{threads} {code} {ctypes.get_errno()}".encode())
+            os._exit(0)
+        os.close(write_fd)
+        report = b""
+        while chunk := os.read(read_fd, 64):
+            report += chunk
+        os.close(read_fd)
+        os.waitpid(pid, 0)
+    finally:
+        server.stop(0).wait()
+
+    threads, code, errno = (int(part) for part in report.split())
+    assert threads == 1, (
+        f"the forked child has {threads} threads while gRPC is serving, so it "
+        "cannot create a user namespace; GRPC_ENABLE_FORK_SUPPORT is not in force"
+    )
+    assert code == 0, f"unshare(CLONE_NEWUSER) failed with errno {errno}"
+
+
+@RAFT
+def test_the_runtime_names_grpc_when_it_is_the_cause():
+    """If the setting is ever lost, the error should say so rather than
+    surfacing EINVAL from inside the namespace helper."""
+    import os
+    import sys
+
+    sys.path.insert(0, str(MODULES_ROOT / "container-runtime"))
+    import grpc  # noqa: F401 — the hazard is "grpc is imported", not "in use"
+
+    from minicon import linux
+
+    previous = os.environ.get("GRPC_ENABLE_FORK_SUPPORT")
+    os.environ["GRPC_ENABLE_FORK_SUPPORT"] = "1"
+    try:
+        hazardous, reason = linux.fork_thread_hazard()
+        assert hazardous
+        assert "GRPC_ENABLE_FORK_SUPPORT=0" in reason
+    finally:
+        if previous is None:
+            del os.environ["GRPC_ENABLE_FORK_SUPPORT"]
+        else:
+            os.environ["GRPC_ENABLE_FORK_SUPPORT"] = previous
+
+    assert linux.fork_thread_hazard() == (False, "")
