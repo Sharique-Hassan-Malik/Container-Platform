@@ -199,26 +199,6 @@ python3 bench/rollout.py             # strategy sweep, readiness vs liveness
 The Raft tests skip unless the sibling `raft-kv` project and `grpcio` are
 importable; everything else is standard library only.
 
-## Bugs this found in its own implementation
-
-Worth recording, because all four are the kind that pass a casual reading:
-
-1. **Surge accounted against observed pods, not requested ones.** Pod creation
-   is asynchronous, so a second pass granted the same headroom again before the
-   first had materialised. `maxSurge=1` produced an unbounded number of pods.
-2. **The same error on the scale-down side.** A pod that is still Ready but
-   exceeds its own ReplicaSet's requested count is already on its way out;
-   counting it as headroom authorised a second removal for the same slot, and
-   two of those breach `maxUnavailable=0`. Caught by a watch-synchronous
-   sampler; a polling one had reported "no dip".
-3. **Crashing pods multiplied without bound.** A failed pod treated as terminal
-   made its ReplicaSet create a replacement, which also failed — 122 pods per
-   node. Fixed by making `CrashLoopBackOff` non-terminal and restarting in
-   place.
-4. **`wait_complete` returned true for the previous rollout.** `status.complete`
-   still described the old generation. This is exactly what `observedGeneration`
-   is for, and it was being written but not checked.
-
 ## Optional: replicated state via Raft-KV
 
 `RaftStore` puts cluster state behind Raft consensus using **Raft-KV**, from the

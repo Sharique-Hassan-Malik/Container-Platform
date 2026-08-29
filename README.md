@@ -114,12 +114,10 @@ pytest                            # everything: 307 tests, nothing skipped
 pytest modules/orchestrator       # one module
 ```
 
-Nothing is skipped, and that took work. The namespace tests used to skip
-themselves — forty-three of them — whenever the suite ran alongside a module
-that starts a gRPC server, on the theory that `unshare(CLONE_NEWUSER)` needs a
-single-threaded process. It does, but a forked child is single-threaded, so the
-gate was wrong and the real bug was underneath it. See
-[docs/known-issues.md](docs/known-issues.md).
+Nothing is skipped, including the forty-three namespace tests.
+`unshare(CLONE_NEWUSER)` needs a single-threaded process and a forked child is
+single-threaded, so they run in the same suite as the modules that start a gRPC
+server.
 
 ## Licence
 

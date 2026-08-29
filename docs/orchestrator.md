@@ -81,8 +81,8 @@ replayed against old.
 **`generation`** increments only when `spec` changes, and controllers record
 what they acted on in `status.observedGeneration`. Without it, "the rollout is
 complete" and "the controller has not looked at the new spec yet" are
-indistinguishable — which is a bug this project shipped and then fixed:
-`wait_complete` returned true for the *previous* rollout.
+indistinguishable, and `wait_complete` would report the *previous* rollout as
+complete.
 
 ## Deployment → ReplicaSet → Pod
 
@@ -106,23 +106,6 @@ the ordinary rollout logic run.
 The exact template is stored in an annotation, because the copy in
 `rs.spec.template` has selector and hash labels merged in and therefore hashes
 differently.
-
-### The two asynchrony bugs
-
-Both were real, both shipped, both are the same mistake on opposite sides:
-
-**Surge.** Scale-up headroom must be computed against replicas *requested*
-across all ReplicaSets, not pods *observed*. Pod creation is asynchronous, so
-counting observations lets a second pass grant the same headroom before the
-first materialised. `maxSurge=1` then produces unbounded pods.
-
-**Unavailability.** Symmetrically, availability must be clamped *per
-ReplicaSet*: a pod that is still `Ready` but exceeds its own ReplicaSet's
-requested count has already been asked to go. Counting it as headroom authorises
-a second removal for the same slot, and two of those breach `maxUnavailable=0`.
-
-The general rule both express: **compare requests with requests, never a request
-with an observation that has not caught up to it.**
 
 ## Crash handling
 
@@ -154,8 +137,7 @@ pod, wait for it, or care whether it succeeds. That is why a scheduler outage
 stops new placements without touching anything already running.
 
 Anti-affinity applies only in spread mode — under bin-packing it would fight the
-objective it exists to serve, which is a bug this project had until the
-bin-packing test failed.
+objective it exists to serve.
 
 ## The work queue
 
