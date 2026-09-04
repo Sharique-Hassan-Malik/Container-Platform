@@ -40,7 +40,7 @@ $ ctl up --store raft --runtime container --replicas 4 --rollout serve:v2
 ## The two seams
 
 The control plane has exactly two places where a real implementation and a
-simulated one are interchangeable, and both are the point of the repository:
+simulated one are interchangeable, and both are the point of the platform:
 
 **Where cluster state lives.** `memory` is a single-process object store;
 `raft` replicates every write through consensus and serves reads from the local

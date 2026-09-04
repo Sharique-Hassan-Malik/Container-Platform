@@ -14,15 +14,15 @@ runs as an ordinary user through unprivileged user namespaces.
 
 ## Background
 
-`model-image-toolkit` (#18) builds OCI images and, at the end of its README,
+`image-toolkit` builds OCI images and, at the end of its README,
 admits two things: its `RUN` executor is not a sandbox, and its cold-start
 runner executes the entrypoint on the host rather than inside the image. Both
 admissions point at the same missing piece — nothing there actually *contains*
 anything.
 
-This is that piece. It is also the answer to a question the packaging project
-could only gesture at: **why does the tenth container from an image cost
-nothing?** The answer is not caching in any ordinary sense. It is that the image
+This is that piece. It is also the answer to a question `image-toolkit` can
+only gesture at from where it sits: **why does the tenth container from an image
+cost nothing?** The answer is not caching in any ordinary sense. It is that the image
 is unpacked once into read-only directories, and each container adds one empty
 directory on top of them.
 
@@ -229,18 +229,18 @@ Requires Linux 5.11+ (unprivileged overlayfs), cgroup v2 with a delegated
 subtree (systemd gives every user one), and Python 3.10+. Standard library
 only — `ctypes` for the syscalls, `socket` for netlink.
 
-Note: the Claude Code bash sandbox denies `uid_map` writes, so the suite must
-run outside it.
+Note: a restricted sandbox that denies `uid_map` writes cannot run this suite —
+user namespaces are the feature under test, so run it on the host.
 
-## Relationship to the other projects
+## Relationship to the other modules
 
-- **#18 `model-image-toolkit`** produces the OCI layouts this consumes, and
-  `image.py` reads them with the standard library rather than importing that
-  package — an image format whose only reader is its own writer has not been
-  tested against anything. It also closes #18's two stated gaps: `RunExecutor`
-  gets a real sandbox, and cold start gets measured inside the container.
-- **#20 `mini-orchestrator`** schedules these containers across nodes, with
-  cluster state in `raft-kv`.
+- **`image-toolkit`** produces the OCI layouts this consumes, and `image.py`
+  reads them with the standard library rather than importing that package — an
+  image format whose only reader is its own writer has not been tested against
+  anything. It also closes that module's two stated gaps: `RunExecutor` gets a
+  real sandbox, and cold start gets measured inside the container.
+- **`orchestrator`** schedules these containers across nodes, with cluster state
+  in `raft-kv`.
 
 ## License
 

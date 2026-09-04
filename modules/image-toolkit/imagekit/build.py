@@ -60,7 +60,7 @@ class HostExecutor:
     It is enough for the COPY/ENV-shaped builds this toolkit targets, and it is
     honest about what it is.
 
-    The from-scratch counterpart is `mini-container-runtime` (#19): it provides
+    The from-scratch counterpart is `container-runtime`: it provides
     the namespaces and overlayfs that make a build step genuinely isolated, and
     plugs in here as a drop-in `RunExecutor`.
     """

@@ -1,6 +1,6 @@
 """Reading an OCI image layout, and unpacking layers into overlay lowerdirs.
 
-This consumes exactly what `model-image-toolkit` (#18) produces -- an
+This consumes exactly what `image-toolkit` produces -- an
 `oci-layout` directory of content-addressed blobs -- but reads it with the
 standard library rather than importing that project, because an image format
 whose only reader is its own writer has not been tested against anything.

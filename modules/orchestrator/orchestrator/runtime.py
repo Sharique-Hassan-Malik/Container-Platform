@@ -8,7 +8,7 @@ care and the tests must be deterministic.
                       rollout can be measured without the noise of real process
                       startup.
 ``ProcessRuntime``    a real subprocess per pod.
-``ContainerRuntime``  a real container per pod, via `mini-container-runtime` (#19).
+``ContainerRuntime``  a real container per pod, via `container-runtime`.
 
 The distinction between *alive* and *ready* is the interface's reason to exist.
 Alive means the process has not exited. Ready means it will serve a request --
@@ -137,7 +137,7 @@ class ProcessRuntime:
 
 
 class ContainerRuntime:
-    """One real container per pod, via `mini-container-runtime` (#19).
+    """One real container per pod, via `container-runtime`.
 
     Kept optional on purpose. The control plane's correctness has nothing to do
     with how a pod is executed, and requiring unprivileged user namespaces to

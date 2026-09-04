@@ -1,4 +1,4 @@
-"""mini-orchestrator -- a Kubernetes-shaped control plane, from first principles.
+"""orchestrator -- a Kubernetes-shaped control plane, from first principles.
 
     from orchestrator import ControlPlane, MemoryStore, deployment_spec, pod_spec
 

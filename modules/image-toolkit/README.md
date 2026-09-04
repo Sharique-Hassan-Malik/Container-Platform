@@ -262,7 +262,7 @@ working directory — it is **not a sandbox**, and says so. The cold-start runne
 executes the entrypoint on the host against the unpacked rootfs rather than
 inside it, using the host interpreter. Both are stated in the code and in
 `ARCHITECTURE.md` rather than papered over, and both are exactly what
-`mini-container-runtime` (#19) fixes: it provides namespaces, cgroups and a real
+`container-runtime` fixes: it provides namespaces, cgroups and a real
 `pivot_root`, plugs into `RunExecutor`, and reports the same four cold-start
 phases plus its own setup cost.
 

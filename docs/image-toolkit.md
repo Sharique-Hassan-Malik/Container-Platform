@@ -163,7 +163,7 @@ benchmark pretends is free.
 **The RUN executor is not a sandbox.** `HostExecutor` runs build commands on the
 host with the staging root as the working directory. Absolute paths reach the
 real filesystem. This is stated rather than hidden, and `RunExecutor` is a
-Protocol so `mini-container-runtime` (#19) drops in as the isolated
+Protocol so `container-runtime` drops in as the isolated
 implementation — which is the honest ordering, since a container runtime is a
 larger project than a build tool.
 

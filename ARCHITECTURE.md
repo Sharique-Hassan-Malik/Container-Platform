@@ -52,9 +52,9 @@ the orchestrator — its job ends at the `ClusterStore` interface — and it doe
 not belong in `raft-kv`, which knows nothing about cluster objects. It belongs
 in the platform, which is the only place that knows both.
 
-Before the merge this logic existed only inside the orchestrator's *test
-suite*, because the test was the only thing that had ever wired the two
-together. Now the test and the CLI use the same function.
+The natural place for it to end up is inside the orchestrator's *test suite* —
+the test being the only thing that ever wires the two together — which leaves
+the CLI reimplementing it. The test and the CLI use the same function.
 
 ## Reads, writes and staleness
 

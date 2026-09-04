@@ -117,7 +117,7 @@ is one boolean.
 
 ## Cluster state on Raft, not etcd
 
-`RaftStore` replaces etcd with the sibling `raft-kv` project. The interesting
+`RaftStore` replaces etcd with the sibling `raft-kv` module. The interesting
 part is where the compare-and-swap runs:
 
 ```python
@@ -168,7 +168,7 @@ rollback(plane.store, "Deployment/default/serve")   # back to the previous revis
 
 Pods can be executed three ways behind one interface: `SimulatedRuntime`
 (deterministic, used by tests), `ProcessRuntime` (a subprocess each), and
-`ContainerRuntime` (a real container each, via `mini-container-runtime` #19).
+`ContainerRuntime` (a real container each, via `container-runtime`).
 The control plane's correctness has nothing to do with which — requiring
 unprivileged user namespaces in order to test a scheduler would be the wrong
 dependency, so the container runtime is imported lazily.
@@ -196,23 +196,17 @@ python3 bench/triggering.py          # level vs edge under a lossy watch
 python3 bench/rollout.py             # strategy sweep, readiness vs liveness
 ```
 
-The Raft tests skip unless the sibling `raft-kv` project and `grpcio` are
+The Raft tests skip unless the sibling `raft-kv` module and `grpcio` are
 importable; everything else is standard library only.
 
 ## Optional: replicated state via Raft-KV
 
-`RaftStore` puts cluster state behind Raft consensus using **Raft-KV**, from the
-[`networking-distributed-systems`](https://github.com/Sharique-Hassan-Malik/networking-distributed-systems)
-repository — a cross-repository dependency declared in
-[`requirements-optional.txt`](./requirements-optional.txt):
+`RaftStore` puts cluster state behind Raft consensus using **Raft-KV**, the
+[`raft-kv`](../raft-kv) module in this repository. Nothing to install beyond
+`grpcio`: resolution is two-tier — an installed distribution first, then the
+sibling module's folder.
 
-```bash
-pip install -r requirements-optional.txt
-```
-
-Resolution is two-tier: an installed distribution first, then a `Raft-KV/`
-directory beside this project. Without it the RaftStore tests skip and the
-in-memory store is used.
+Without `grpcio` the RaftStore tests skip and the in-memory store is used.
 
 ---
 

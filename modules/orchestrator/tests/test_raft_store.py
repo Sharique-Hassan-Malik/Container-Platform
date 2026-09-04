@@ -24,9 +24,9 @@ RAFT_KV = os.path.join(
 )
 
 try:
-    # Installed distribution first; fall back to a colocated checkout.
-    #   pip install "raft-kv @ git+https://github.com/Sharique-Hassan-Malik/\
-    #   container-platform.git#subdirectory=modules/raft-kv"
+    # Installed distribution first, then the sibling module's folder. There is
+    # nothing to install: `raft-kv` is a module of this repository, not a
+    # published distribution. `grpcio` is what these tests actually need.
     if importlib.util.find_spec("raft_kv") is None:
         sys.path.insert(0, RAFT_KV)
     import raft_kv as _raft_kv  # noqa: E402

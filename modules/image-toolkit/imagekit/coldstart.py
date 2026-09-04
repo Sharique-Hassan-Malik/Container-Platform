@@ -172,7 +172,7 @@ def _run_payload(argv: list[str], rootfs: str, config, result: ColdStartResult, 
 
     The process runs on the host with the unpacked rootfs as its working
     directory -- enough to time a real load of real bytes, but not isolated.
-    `mini-container-runtime` (#19) runs this same rootfs under namespaces and
+    `container-runtime` runs this same rootfs under namespaces and
     reports the same four phases plus the runtime's own setup cost.
     """
     env = dict(os.environ)
@@ -278,7 +278,7 @@ def _rebase(argument: str, rootfs: str) -> str:
 
     The interpreter itself is deliberately not rewritten: this runner uses the
     host's `python3`, so the base image's own interpreter is never exercised.
-    `mini-container-runtime` (#19) removes both caveats by actually entering the
+    `container-runtime` removes both caveats by actually entering the
     root, and reports the same four phases for comparison.
     """
     if not argument.startswith("/"):

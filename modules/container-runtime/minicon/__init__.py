@@ -1,4 +1,4 @@
-"""mini-container-runtime -- containers from namespaces, cgroups and overlayfs.
+"""container-runtime -- containers from namespaces, cgroups and overlayfs.
 
     from minicon import Container, ContainerConfig, ImageStore, Limits
 

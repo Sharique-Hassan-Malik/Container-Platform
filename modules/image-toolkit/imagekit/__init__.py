@@ -1,4 +1,4 @@
-"""model-image-toolkit -- OCI images for model servers, built from scratch.
+"""image-toolkit -- OCI images for model servers, built from scratch.
 
     from imagekit import ImageStore, Builder
 
